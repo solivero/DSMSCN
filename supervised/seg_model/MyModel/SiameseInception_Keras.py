@@ -1,5 +1,5 @@
 import keras.backend as K
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from keras.layers import Conv2D, MaxPooling2D, Dropout, UpSampling2D, Concatenate, Lambda, Subtract, Conv2DTranspose, \
     Multiply, GlobalAveragePooling2D
 from keras.models import Input, Model
