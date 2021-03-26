@@ -1,8 +1,7 @@
-import keras.backend as K
-import tensorflow.compat.v1 as tf
-from keras.layers import Conv2D, MaxPooling2D, Dropout, UpSampling2D, Concatenate, Lambda, Subtract, Conv2DTranspose, \
-    Multiply, GlobalAveragePooling2D
-from keras.models import Input, Model
+import tensorflow as tf
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Dropout, UpSampling2D, Concatenate, Lambda, Subtract, Conv2DTranspose, \
+    Multiply, GlobalAveragePooling2D, Input
+from tensorflow.keras.models import Model
 
 
 class SiameseInception(object):
@@ -11,8 +10,8 @@ class SiameseInception(object):
         inputs_tensor = Input(shape=input_size)
         Feature_Extract_Model = Model(inputs=[inputs_tensor], outputs=self._feature_extract_layer(inputs_tensor),
                                       name='FEM')
-        Inputs_1 = Input(shape=input_size)
-        Inputs_2 = Input(shape=input_size)
+        Inputs_1 = Input(shape=input_size, name="input_1")
+        Inputs_2 = Input(shape=input_size, name="input_2")
         net_X, feature_1_X, feature_2_X, feature_3_X, feature_4_X = Feature_Extract_Model(inputs=Inputs_1)
         net_Y, feature_1_Y, feature_2_Y, feature_3_Y, feature_4_Y = Feature_Extract_Model(inputs=Inputs_2)
 
@@ -141,17 +140,17 @@ class SiameseInception(object):
         # layer_3 = BatchNormalization()(layer_3)
         layer_4 = Conv2D(16, 3, activation='relu', padding='same', kernel_initializer='he_normal')(concat_layer_4)
         logits = Conv2D(1, 3, activation='sigmoid', padding='same', kernel_initializer='he_normal')(layer_4)
-        logits = Lambda(self.squeeze)(logits)
+        #logits = Lambda(self.squeeze)(logits) # I COMMENTED THIS
         return logits
 
     def squeeze(self, tensor):
-        return K.squeeze(tensor, axis=-1)
+        return tf.squeeze(tensor, axis=-1)
 
     def sum_func(self, tensor):
-        return K.sum(tensor, axis=-1, keepdims=True)
+        return tf.math.reduce_sum(tensor, axis=-1, keepdims=True)
 
     def Abs_layer(self, tensor):
-        return Lambda(K.abs)(tensor)
+        return Lambda(tf.math.abs)(tensor)
 
 
     def Negative_layer(self, tensor):
@@ -249,7 +248,7 @@ class SiameseInception(object):
 
     def Expand_Dim_Layer(self, tensor):
         def expand_dim(tensor):
-            return K.expand_dims(tensor, axis=1)
+            return tf.expand_dims(tensor, axis=1)
 
         return Lambda(expand_dim)(tensor)
 
@@ -258,3 +257,9 @@ class SiameseInception(object):
             tf.nn.weighted_cross_entropy_with_logits(targets=label, logits=logits, pos_weight=pos_weight,
                                                      name='weight_loss'))
         return loss
+
+if __name__ == '__main__':
+    model = SiameseInception().get_model([256, 256, 3])
+    print(model.summary())
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    tflite_model = converter.convert()

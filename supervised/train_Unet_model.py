@@ -6,12 +6,12 @@ import pickle
 import numpy as np
 from keras.optimizers import Adam
 
-from .acc_util import Recall, Precision, F1_score
-from .seg_model.U_net.FC_Siam_Diff import get_FCSD_model
-from .seg_model.U_net.FC_Siam_Conc import get_FCSC_model
-from .seg_model.U_net.FC_EF import get_FCEF_model
-from .acc_ass import accuracy_assessment
-from .net_util import weight_binary_cross_entropy
+from acc_util import Recall, Precision, F1_score
+from seg_model.U_net.FC_Siam_Diff import get_FCSD_model
+from seg_model.U_net.FC_Siam_Conc import get_FCSC_model
+from seg_model.U_net.FC_EF import get_FCEF_model
+from acc_ass import accuracy_assessment
+from net_util import weight_binary_cross_entropy
 from scipy import misc
 
 parser = argparse.ArgumentParser()
