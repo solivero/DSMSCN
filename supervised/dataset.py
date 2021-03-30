@@ -8,8 +8,6 @@ from tensorflow.keras.layers import *
 from tensorflow.keras.optimizers import Adam
 import tensorflow_io as tfio
 
-# For more information about autotune:
-# https://www.tensorflow.org/guide/data_performance#prefetching
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 print(f"Tensorflow ver. {tf.__version__}")
 
@@ -17,9 +15,9 @@ root = "/app"
 dataset_path = os.path.join(root, "spacenet7")
 training_data = "train/"
 val_data = "train/"
-# Image size that we are going to use
-IMG_SIZE = 1024
-PATCH_SIZE = 256
+IMG_SIZE = 1024 # Image size expected on file
+UPSCALE = 2 # To avoid tiny areas of 2x2 pixels
+PATCH_SIZE = 512 # After upscaling
 SEED = 42
 
 def parse_image_pair(csv_batch) -> dict:
@@ -46,19 +44,6 @@ def parse_image_pair(csv_batch) -> dict:
     image2 = tfio.experimental.image.decode_tiff(image2)
     image2 = tf.image.convert_image_dtype(image2, tf.uint8)[:, :, :3]
 
-    # For one Image path:
-    # .../trainset/images/training/ADE_train_00000001.jpg
-    # Its corresponding annotation path is:
-    # .../trainset/annotations/training/ADE_train_00000001.png
-    #mask_path = tf.strings.regex_replace(img1_path, "images_masked", "change_maps")
-    #prefix_len = len('global_monthly_')
-    #date_len = 7
-    #img1_file = tf.strings.split(img1_path, sep='/')[-1]
-    #date1 = tf.strings.substr(img1_file, prefix_len, date_len)
-    #img2_file = tf.strings.split(img2_path, sep='/')[-1]
-    #date2 = tf.strings.substr(img2_file, prefix_len, date_len)
-    #double_date = tf.strings.join([date1, date2], separator='-')
-
     #cm_name = tf.strings.regex_replace(mask_path, r'20\d{2}_\d{2}', double_date)
     cm_name = csv_batch['label'][0]
 
@@ -83,7 +68,7 @@ def parse_image_pair(csv_batch) -> dict:
 
 @tf.function
 def make_patches(image1: tf.Tensor, image2: tf.Tensor, mask: tf.Tensor):
-    n_patches = (IMG_SIZE//PATCH_SIZE)**2
+    n_patches = ((IMG_SIZE*UPSCALE) // PATCH_SIZE)**2
     image1_patches = tf.image.extract_patches(images=tf.expand_dims(image1, 0),
                         sizes=[1, PATCH_SIZE, PATCH_SIZE, 1],
                         strides=[1, PATCH_SIZE, PATCH_SIZE, 1],
@@ -110,9 +95,6 @@ def make_patches(image1: tf.Tensor, image2: tf.Tensor, mask: tf.Tensor):
 
 #val_dataset = tf.data.Dataset.list_files(dataset_path + val_data + "*.tif", seed=SEED)
 #val_dataset = val_dataset.map(parse_image)
-# Here we are using the decorator @tf.function
-# if you want to know more about it:
-# https://www.tensorflow.org/api_docs/python/tf/function
 
 @tf.function
 def normalize(input_image1: tf.Tensor, input_image2: tf.Tensor, input_mask: tf.Tensor) -> tuple:
@@ -136,6 +118,15 @@ def normalize(input_image1: tf.Tensor, input_image2: tf.Tensor, input_mask: tf.T
     return input_image1, input_image2, input_mask
 
 @tf.function
+def upscale_images(image1: tf.Tensor, image2: tf.Tensor, mask: tf.Tensor) -> tuple:
+    upscaled_size = IMG_SIZE*UPSCALE
+    # use nearest neightbor?
+    input_image1 = tf.image.resize(image1, (upscaled_size, upscaled_size))
+    input_image2 = tf.image.resize(image2, (upscaled_size, upscaled_size))
+    input_mask = tf.image.resize(mask, (upscaled_size, upscaled_size))
+    return input_image1, input_image2, input_mask
+
+@tf.function
 def load_image_train(image1: tf.Tensor, image2: tf.Tensor, mask: tf.Tensor) -> tuple:
     """Apply some transformations to an input dictionary
     containing a train image and its annotation.
@@ -156,16 +147,13 @@ def load_image_train(image1: tf.Tensor, image2: tf.Tensor, mask: tf.Tensor) -> t
     tuple
         A modified image and its annotation.
     """
-    input_image1 = tf.image.resize(image1, (PATCH_SIZE, PATCH_SIZE))
-    input_image2 = tf.image.resize(image2, (PATCH_SIZE, PATCH_SIZE))
-    input_mask = tf.image.resize(mask, (PATCH_SIZE, PATCH_SIZE))
 
     if tf.random.uniform(()) > 0.5:
-        input_image1 = tf.image.flip_left_right(input_image1)
-        input_image2 = tf.image.flip_left_right(input_image2)
-        input_mask = tf.image.flip_left_right(input_mask)
+        image1 = tf.image.flip_left_right(image1)
+        image2 = tf.image.flip_left_right(image2)
+        mask = tf.image.flip_left_right(mask)
 
-    input_image1, input_image2, input_mask = normalize(input_image1, input_image2, input_mask)
+    input_image1, input_image2, input_mask = normalize(image1, image2, mask)
 
     return {'input_1': input_image1, 'input_2': input_image2}, input_mask
 
@@ -197,29 +185,35 @@ def load_image_test(datapoint: dict) -> tuple:
 
 # train_dataset = tf.data.Dataset.list_files(os.path.join(dataset_path, training_data + "*/images_masked/*.tif"), shuffle=False)
 # train_dataset = tf.data.Dataset.zip((train_dataset, train_dataset.skip(1)))
-# for reference about the BUFFER_SIZE in shuffle:
-# https://stackoverflow.com/questions/46444018/meaning-of-buffer-size-in-dataset-map-dataset-prefetch-and-dataset-shuffle
+
 BUFFER_SIZE = 100
-BATCH_SIZE = 4
-VAL_SIZE = 100
+BATCH_SIZE = 8
+VAL_SIZE = 256
 
-# -- Train Dataset --#
-train_csv_ds = tf.data.experimental.make_csv_dataset(
-    '/app/spacenet7/csvs/sn7_baseline_train_df.csv',
-    batch_size=1, # Actual batching in later stages
-    num_epochs=1,
-    ignore_errors=True)
-    # Shuffle train_csv_ds first to have diverse val set?
-dataset_train = train_csv_ds.skip(VAL_SIZE) \
-    .map(parse_image_pair) \
-    .flat_map(lambda image1, image2, mask: tf.data.Dataset.from_tensor_slices(make_patches(image1, image2, mask))) \
-    .map(load_image_train, num_parallel_calls=tf.data.experimental.AUTOTUNE) \
-    .batch(BATCH_SIZE, drop_remainder=True)
-    #.shuffle(buffer_size=BUFFER_SIZE, seed=SEED) \
-    #.prefetch(buffer_size=AUTOTUNE)
+def load_image_dataset(csv_dataset):
+    return csv_dataset \
+        .map(parse_image_pair) \
+        .map(upscale_images) \
+        .flat_map(lambda image1, image2, mask: tf.data.Dataset.from_tensor_slices(make_patches(image1, image2, mask))) \
+        .map(load_image_train, num_parallel_calls=tf.data.experimental.AUTOTUNE) \
+        .batch(BATCH_SIZE, drop_remainder=True)
+def load_csv_dataset(csv_path):
+    return tf.data.experimental.make_csv_dataset(
+        csv_path,
+        batch_size=1, # Actual batching in later stages
+        num_epochs=1,
+        ignore_errors=True)
+        # Shuffle train_csv_ds first to have diverse val set?
 
-dataset_val = train_csv_ds.take(VAL_SIZE) \
-    .map(parse_image_pair) \
-    .flat_map(lambda image1, image2, mask: tf.data.Dataset.from_tensor_slices(make_patches(image1, image2, mask))) \
-    .map(load_image_train, num_parallel_calls=tf.data.experimental.AUTOTUNE) \
-    .batch(BATCH_SIZE, drop_remainder=True)
+def load_datasets(csv_path, batch_size=8, val_size=256, buffer_size=100):
+    csv_dataset = load_csv_dataset(csv_path)
+    train_csv = csv_dataset.skip(val_size)
+    dataset_train = load_image_dataset(train_csv) \
+        .batch(batch_size, drop_remainder=True) \
+        .prefetch(buffer_size=AUTOTUNE)
+        #.shuffle(buffer_size=buffer_size, seed=SEED) \
+    val_csv = csv_dataset.take(val_size)
+    dataset_val = load_image_dataset(val_csv) \
+        .batch(batch_size, drop_remainder=True) \
+        .prefetch(buffer_size=AUTOTUNE)
+    return dataset_train, dataset_val
