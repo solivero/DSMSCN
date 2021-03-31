@@ -6,9 +6,10 @@ from datetime import datetime
 from dataset import load_datasets
 from seg_model.MyModel.SiameseInception_Keras import SiameseInception
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-from net_util import weight_binary_cross_entropy
-from acc_util import F1_score
-from tensorflow.keras.metrics import Recall, Precision, BinaryAccuracy
+from net_util import weight_binary_cross_entropy, dice_loss
+from acc_util import F1_score#, Recall, Precision
+from tensorflow.keras.metrics import BinaryAccuracy, MeanIoU, Recall, Precision, AUC
+from tensorflow.keras.losses import BinaryCrossentropy
 from tensorflow_addons.metrics import CohenKappa, F1Score
 
 parser = argparse.ArgumentParser()
@@ -42,22 +43,21 @@ print(dataset_train.element_spec)
 
 precision = Precision()
 recall = Recall()
-accuracy = BinaryAccuracy()
+#accuracy = BinaryAccuracy()
 #f1_score = F1Score(num_classes=2, threshold=0.5)
 f1_score = F1_score
 kappa = CohenKappa(num_classes=2)
+auc = AUC(num_thresholds=20)
+iou = MeanIoU(num_classes=2)
 # use LR?
-model.compile(optimizer='adam', loss=weight_binary_cross_entropy, metrics=[accuracy, recall, precision])
+
+model.compile(optimizer='adam',
+                       loss=dice_loss, metrics=['accuracy', recall, precision, F1_score, iou])
+#model.compile(optimizer='adam', loss=BinaryCrossentropy(), metrics=[accuracy, recall, precision])
 model_checkpoint_callback = ModelCheckpoint(
     filepath=CHECKPOINT_PATH,
     monitor='val_loss')
 early_stopping = EarlyStopping(patience=10)
-
-debug = False
-if debug:
-    for img, masks in iter(dataset_train.take(8)):
-        for mask_patch in masks:
-            print(tf.math.count_nonzero(mask_patch))
 
 train = True
 # 1024 * 2 = 2048 upscaled image
@@ -65,10 +65,10 @@ train = True
 # 4^2 = 16 patches per image
 # 16 / 8 = 2 batches per image
 if train:
-    model_history = model.fit(dataset_train.take(2),
-        validation_data=dataset_val.take(2),
+    model_history = model.fit(dataset_train,
+        validation_data=dataset_val.take(10),
         epochs=MAX_EPOCH,
-        callbacks=[model_checkpoint_callback, early_stopping]
+        callbacks=[model_checkpoint_callback, early_stopping],
     )
 
 

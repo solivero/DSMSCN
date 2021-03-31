@@ -160,7 +160,7 @@ def fully_connected(inputs, num_outputs, is_training=True, is_bn=False, activati
     return outputs
 
 
-def weight_binary_cross_entropy(target, output, weight=1.0, from_logits=False):
+def weight_binary_cross_entropy(target, output, weight=5.0, from_logits=True):
     """weight binary crossentropy between an output tensor and a target tensor.
 
         # Arguments
@@ -181,10 +181,19 @@ def weight_binary_cross_entropy(target, output, weight=1.0, from_logits=False):
         output = tf.clip_by_value(output, _epsilon, 1 - _epsilon)
         output = tf.log(output / (1 - output))
 
-    return tf.nn.weighted_cross_entropy_with_logits(targets=target,
+    return tf.nn.weighted_cross_entropy_with_logits(labels=target,
                                                     logits=output,
                                                     pos_weight=weight)
 
+smooth = 1e-15
+def dice_coef(y_true, y_pred):
+    y_true = tf.keras.layers.Flatten()(y_true)
+    y_pred = tf.keras.layers.Flatten()(y_pred)
+    intersection = tf.reduce_sum(y_true * y_pred)
+    return (2. * intersection + smooth) / (tf.reduce_sum(y_true) + tf.reduce_sum(y_pred) + smooth)
+
+def dice_loss(y_true, y_pred):
+    return 1.0 - dice_coef(y_true, y_pred)
 
 def _to_tensor(x, dtype):
     """Convert the input `x` to a tensor of type `dtype`.

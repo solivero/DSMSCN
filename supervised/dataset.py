@@ -37,12 +37,12 @@ def parse_image_pair(csv_batch) -> dict:
     img1_path = csv_batch['image1'][0]
     image1 = tf.io.read_file(img1_path)
     image1 = tfio.experimental.image.decode_tiff(image1)
-    image1 = tf.image.convert_image_dtype(image1, tf.uint8)[:, :, :3]
+    image1 = tf.image.convert_image_dtype(image1, tf.float32)[:, :, :3]
 
     img2_path = csv_batch['image2'][0]
     image2 = tf.io.read_file(img2_path)
     image2 = tfio.experimental.image.decode_tiff(image2)
-    image2 = tf.image.convert_image_dtype(image2, tf.uint8)[:, :, :3]
+    image2 = tf.image.convert_image_dtype(image2, tf.float32)[:, :, :3]
 
     #cm_name = tf.strings.regex_replace(mask_path, r'20\d{2}_\d{2}', double_date)
     cm_name = csv_batch['label'][0]
@@ -52,8 +52,8 @@ def parse_image_pair(csv_batch) -> dict:
     mask = tf.io.read_file(cm_name)
     # The masks contain a class index for each pixels
     mask = tfio.experimental.image.decode_tiff(mask)
-    mask = tf.image.convert_image_dtype(mask, tf.uint8)[:, :, :1]
-    mask = tf.where(mask == 255, np.dtype('uint8').type(1), mask)
+    mask = tf.image.convert_image_dtype(mask, tf.float32)[:, :, :1]
+    #mask = tf.where(mask == 255, np.dtype('uint8').type(1), mask)
     #filler_row = tf.zeros((1, 1024, 1), tf.uint8)
     #mask = tf.concat([mask, filler_row], axis=0)
 
@@ -148,14 +148,14 @@ def load_image_train(image1: tf.Tensor, image2: tf.Tensor, mask: tf.Tensor) -> t
         A modified image and its annotation.
     """
 
-    if tf.random.uniform(()) > 0.5:
+    if tf.random.uniform(()) > 1:
         image1 = tf.image.flip_left_right(image1)
         image2 = tf.image.flip_left_right(image2)
         mask = tf.image.flip_left_right(mask)
 
-    input_image1, input_image2, input_mask = normalize(image1, image2, mask)
+    #input_image1, input_image2, input_mask = normalize(image1, image2, mask)
 
-    return {'input_1': input_image1, 'input_2': input_image2}, input_mask
+    return {'input_1': image1, 'input_2': image2}, mask
 
 @tf.function
 def load_image_test(datapoint: dict) -> tuple:
@@ -183,20 +183,15 @@ def load_image_test(datapoint: dict) -> tuple:
 
     return input_image, input_mask
 
-# train_dataset = tf.data.Dataset.list_files(os.path.join(dataset_path, training_data + "*/images_masked/*.tif"), shuffle=False)
-# train_dataset = tf.data.Dataset.zip((train_dataset, train_dataset.skip(1)))
-
 BUFFER_SIZE = 100
-BATCH_SIZE = 8
-VAL_SIZE = 256
 
 def load_image_dataset(csv_dataset):
     return csv_dataset \
         .map(parse_image_pair) \
         .map(upscale_images) \
         .flat_map(lambda image1, image2, mask: tf.data.Dataset.from_tensor_slices(make_patches(image1, image2, mask))) \
-        .map(load_image_train, num_parallel_calls=tf.data.experimental.AUTOTUNE) \
-        .batch(BATCH_SIZE, drop_remainder=True)
+        .map(load_image_train, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
 def load_csv_dataset(csv_path):
     return tf.data.experimental.make_csv_dataset(
         csv_path,
@@ -217,3 +212,23 @@ def load_datasets(csv_path, batch_size=8, val_size=256, buffer_size=100):
         .batch(batch_size, drop_remainder=True) \
         .prefetch(buffer_size=AUTOTUNE)
     return dataset_train, dataset_val
+
+if __name__ == '__main__':
+    train_ds, val_ds = load_datasets('/app/spacenet7/csvs/sn7_baseline_train_df.csv')
+
+    predictions_dir = './training_samples'
+    def save_img(img, name):
+        cast_img = tf.image.convert_image_dtype(img, dtype=tf.uint8, saturate=True)
+        png_img = tf.io.encode_png(cast_img)
+        mask_path = os.path.join(predictions_dir, name)
+        tf.io.write_file(
+            mask_path, png_img, name=None
+        )
+    if not os.path.exists(predictions_dir):
+        os.mkdir(predictions_dir)
+    for b, (img_batch, mask_batch) in enumerate(train_ds.take(4)):
+        for i, img1, img2, mask in zip(range(len(img_batch)), img_batch['input_1'], img_batch['input_2'], mask_batch):
+            #cast_img = tf.image.resize(img, (img.shape[0] // 2, img.shape[1] // 2))
+            save_img(img1, f'b{b}-i{i}-img1.png')
+            save_img(img2, f'b{b}-i{i}-img2.png')
+            save_img(mask, f'b{b}-i{i}-mask.png')
