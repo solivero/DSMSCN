@@ -1,14 +1,14 @@
-import keras.backend as K
-from keras.layers import Conv2D, MaxPooling2D, Dropout, UpSampling2D, Concatenate, Lambda, Subtract
-from keras.models import Input, Model
+import tensorflow.keras.backend as K
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Dropout, UpSampling2D, Concatenate, Lambda, Subtract, Input
+from tensorflow.keras.models import Model
 
 
 def get_FCSD_model(input_size, pre_weights=None):
     # get a Siamese Encoder
     inputs_tensor = Input(shape=input_size)
     Contract_Path_Model = Model(inputs=[inputs_tensor], outputs=contract_path(inputs_tensor))
-    Inputs_1 = Input(shape=input_size)
-    Inputs_2 = Input(shape=input_size)
+    Inputs_1 = Input(shape=input_size, name='input_1')
+    Inputs_2 = Input(shape=input_size, name='input_2')
     _, feature_11, feature_12, feature_13, feature_14 = Contract_Path_Model(Inputs_1)
     feature_2, feature_21, feature_22, feature_23, feature_24 = Contract_Path_Model(Inputs_2)
     # must use Subtract Layer instead of "-", otherwise the place would raise bug
@@ -101,7 +101,7 @@ def expansive_path(feature, diff_1, diff_2, diff_3, diff_4):
     Deconv_4 = Conv2D(16, 3, activation='relu', padding='same', kernel_initializer='he_normal')(Deconv_4)
     # Deconv_4 = BatchNormalization()(Deconv_4)
     logits = Conv2D(1, 3, activation='sigmoid', padding='same', kernel_initializer='he_normal')(Deconv_4)
-    logits = Lambda(squeeze)(logits)
+    #logits = Lambda(squeeze)(logits)
     return logits
 
 

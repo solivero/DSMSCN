@@ -5,6 +5,9 @@ import os
 from datetime import datetime
 from dataset import load_datasets
 from seg_model.MyModel.SiameseInception_Keras import SiameseInception
+from seg_model.U_net.FC_Siam_Diff import get_FCSD_model
+from seg_model.U_net.FC_Siam_Conc import get_FCSC_model
+from seg_model.U_net.FC_EF import get_FCEF_model
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from net_util import weight_binary_cross_entropy, dice_loss
 from acc_util import F1_score#, Recall, Precision
@@ -38,6 +41,9 @@ dataset_train, dataset_val = load_datasets(DATA_PATH, batch_size=BATCH_SZ)
 input_shape = [512, 512, 3]
 siam_incep = SiameseInception()
 model = siam_incep.get_model(input_shape)
+#model = get_FCEF_model(input_shape)
+#model = get_FCSD_model(input_shape)
+#model = get_FCSC_model(input_shape)
 print('Dataset spec')
 print(dataset_train.element_spec)
 
@@ -54,6 +60,7 @@ iou = MeanIoU(num_classes=2)
 model.compile(optimizer='adam',
                        loss=dice_loss, metrics=['accuracy', recall, precision, F1_score, iou])
 #model.compile(optimizer='adam', loss=BinaryCrossentropy(), metrics=[accuracy, recall, precision])
+print(model.summary())
 model_checkpoint_callback = ModelCheckpoint(
     filepath=CHECKPOINT_PATH,
     monitor='val_loss')
@@ -65,7 +72,7 @@ train = True
 # 4^2 = 16 patches per image
 # 16 / 8 = 2 batches per image
 if train:
-    model_history = model.fit(dataset_train,
+    model_history = model.fit(dataset_train.take(10),
         validation_data=dataset_val.take(10),
         epochs=MAX_EPOCH,
         callbacks=[model_checkpoint_callback, early_stopping],

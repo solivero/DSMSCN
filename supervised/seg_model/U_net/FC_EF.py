@@ -1,7 +1,7 @@
-import keras.backend as K
-from keras.layers import Conv2D, MaxPooling2D, Dropout, UpSampling2D, Concatenate, Lambda, Subtract, Conv2DTranspose, \
-    Multiply, GlobalAveragePooling2D
-from keras.models import Input, Model
+import tensorflow.keras.backend as K
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Dropout, UpSampling2D, Concatenate, Lambda, Subtract, Conv2DTranspose, \
+    Multiply, GlobalAveragePooling2D, Input
+from tensorflow.keras.models import Model
 
 
 def get_FCEF_model(input_size, pre_weights=None):
