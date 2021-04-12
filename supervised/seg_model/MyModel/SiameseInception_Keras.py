@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, Dropout, UpSampling2D, Concatenate, Lambda, Subtract, Conv2DTranspose, \
-    Multiply, GlobalAveragePooling2D, Input
+    Multiply, GlobalAveragePooling2D, Input, BatchNormalization
 from tensorflow.keras.models import Model
 
 
@@ -42,7 +42,7 @@ class SiameseInception(object):
                          kernel_initializer='he_normal', name='Conv_1')(inputs)
         layer_1 = Conv2D(16, kernel_size=3, strides=[1, 1], activation='relu', padding='same',
                          kernel_initializer='he_normal', name='Conv_2')(layer_1)
-        # layer_1 = BatchNormalization()(layer_1)
+        layer_1 = BatchNormalization()(layer_1)
         feature_1 = layer_1
         layer_1 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding='same', name='Max_Pool_1')(layer_1)
         # drop_layer_1 = Dropout(0.2)(layer_1)
@@ -52,7 +52,7 @@ class SiameseInception(object):
                          kernel_initializer='he_normal', name='Conv_3')(layer_1)
         layer_2 = Conv2D(32, kernel_size=3, strides=[1, 1], activation='relu', padding='same',
                          kernel_initializer='he_normal', name='Conv_4')(layer_2)
-        #  layer_2 = BatchNormalization()(layer_2)
+        layer_2 = BatchNormalization()(layer_2)
         feature_2 = layer_2
         layer_2 = Dropout(0.2)(layer_2)
         layer_2 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding='same', name='Max_Pool_2')(layer_2)
@@ -63,7 +63,7 @@ class SiameseInception(object):
         # layer_3 = self._Inception_model_1(inputs=layer_3, strides=[1, 1], data_format='NHWC')
         # layer_3 = Conv2D(64, kernel_size=1, strides=[1, 1], padding='same',
                          # kernel_initializer='he_normal', name='Conv_111')(layer_3)
-        # layer_3 = BatchNormalization()(layer_3)
+        layer_3 = BatchNormalization()(layer_3)
         feature_3 = layer_3
         layer_3 = Dropout(0.4)(layer_3)
         layer_3 = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding='same', name='Max_Pool_3')(layer_3)
@@ -74,7 +74,7 @@ class SiameseInception(object):
         # layer_4 = self._Inception_model_1(inputs=layer_4, strides=[1, 1], data_format='NHWC')
         # layer_4 = Conv2D(128, kernel_size=1, strides=[1, 1], padding='same',
                         #  kernel_initializer='he_normal', name='Conv_112')(layer_4)
-        # layer_4 = BatchNormalization()(layer_4)
+        layer_4 = BatchNormalization()(layer_4)
         feature_4 = layer_4
         layer_4 = Dropout(0.5)(layer_4)
         net = MaxPooling2D(pool_size=(2, 2), strides=(2, 2), padding='same', name='Max_Pool_4')(layer_4)
@@ -95,7 +95,7 @@ class SiameseInception(object):
 
         layer_1 = Conv2D(128, 3, strides=[1, 1], activation='relu', padding='same', kernel_initializer='he_normal')(
             concat_layer_1)
-        # layer_1 = BatchNormalization()(layer_1)
+        layer_1 = BatchNormalization()(layer_1)
         layer_1 = Dropout(0.5)(layer_1)
         layer_1 = Conv2D(64, 3, strides=[1, 1], activation='relu', padding='same', kernel_initializer='he_normal')(
             layer_1)
@@ -112,7 +112,7 @@ class SiameseInception(object):
         # layer_2 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(
         #     concat_layer_2)
         layer_2 = Conv2D(64, 3, activation='relu', padding='same', kernel_initializer='he_normal')(concat_layer_2)
-        # layer_2 = BatchNormalization()(layer_2)
+        layer_2 = BatchNormalization()(layer_2)
         layer_2 = Conv2D(32, 3, activation='relu', padding='same', kernel_initializer='he_normal')(layer_2)
         drop_layer_2 = Dropout(0.4)(layer_2)
         # (B, H/4, W/4, 32) --> (B, H/2, W/2, 16)
@@ -124,7 +124,7 @@ class SiameseInception(object):
         concat_layer_3 = Concatenate()([layer_3, diff_fea_2])
 
         layer_3 = Conv2D(32, 3, activation='relu', padding='same', kernel_initializer='he_normal')(concat_layer_3)
-        # layer_3 = BatchNormalization()(layer_3)
+        layer_3 = BatchNormalization()(layer_3)
         layer_3 = Conv2D(16, 3, activation='relu', padding='same', kernel_initializer='he_normal')(layer_3)
         drop_layer_3 = Dropout(0.3)(layer_3)
         # (B, H/2, W/2, 16) --> (B, H, W, 1)

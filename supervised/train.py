@@ -8,18 +8,19 @@ from seg_model.MyModel.SiameseInception_Keras import SiameseInception
 from seg_model.U_net.FC_Siam_Diff import get_FCSD_model
 from seg_model.U_net.FC_Siam_Conc import get_FCSC_model
 from seg_model.U_net.FC_EF import get_FCEF_model
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-from net_util import weight_binary_cross_entropy, dice_loss
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, CSVLogger
+from net_util import weight_binary_cross_entropy, dice_loss, weighted_bce_dice_loss
 from acc_util import F1_score#, Recall, Precision
-from tensorflow.keras.metrics import BinaryAccuracy, MeanIoU, Recall, Precision, AUC
+from tensorflow.keras.metrics import BinaryAccuracy, MeanIoU, Recall, Precision, AUC, FalsePositives, FalseNegatives, TruePositives, TrueNegatives
 from tensorflow.keras.losses import BinaryCrossentropy
+from tensorflow.keras.optimizers import Adam
 from tensorflow_addons.metrics import CohenKappa, F1Score
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model_name', default='DSMSCN', help='model name')
 parser.add_argument('--max_epoch', type=int, default=100, help='epoch to run[default: 100]')
 parser.add_argument('--batch_size', type=int, default=8, help='batch size during training[default: 512]')
-parser.add_argument('--learning_rate', type=float, default=2e-4, help='initial learning rate[default: 1e-4]')
+parser.add_argument('--learning_rate', type=float, default=0.0002, help='initial learning rate[default: 1e-4]')
 parser.add_argument('--model_save_path', default='saved_model/', help='model save path')
 parser.add_argument('--checkpoint_path', default='checkpoints/', help='model checkpoint path')
 parser.add_argument('--data_path', default='/app/spacenet7/csvs/sn7_baseline_train_df.csv', help='data path')
@@ -37,7 +38,7 @@ DATA_PATH = FLAGS.data_path
 MODEL_PATH = FLAGS.model_path
 MODEL_NAME = FLAGS.model_name
 
-dataset_train, dataset_val = load_datasets(DATA_PATH, batch_size=BATCH_SZ)
+dataset_train, dataset_val = load_datasets(DATA_PATH, batch_size=BATCH_SZ, val_size=128, buffer_size=1000)
 input_shape = [512, 512, 3]
 siam_incep = SiameseInception()
 model = siam_incep.get_model(input_shape)
@@ -52,19 +53,28 @@ recall = Recall()
 #accuracy = BinaryAccuracy()
 #f1_score = F1Score(num_classes=2, threshold=0.5)
 f1_score = F1_score
-kappa = CohenKappa(num_classes=2)
+kappa = CohenKappa(num_classes=2, sparse_labels=True)
 auc = AUC(num_thresholds=20)
 iou = MeanIoU(num_classes=2)
+tp = TruePositives()
+fp = FalsePositives()
+tn = TrueNegatives()
+fn = FalseNegatives()
 # use LR?
 
-model.compile(optimizer='adam',
-                       loss=dice_loss, metrics=['accuracy', recall, precision, F1_score, iou])
-#model.compile(optimizer='adam', loss=BinaryCrossentropy(), metrics=[accuracy, recall, precision])
+model.compile(optimizer=Adam(),
+                       loss=weighted_bce_dice_loss, metrics=[tp, fp, fn, fp, recall, precision, F1_score, iou])
+#model.compile(optimizer='adam', loss=BinaryCrossentropy(), metrics=[accuracy, recall, precision], run_eagerly=False)
 print(model.summary())
 model_checkpoint_callback = ModelCheckpoint(
     filepath=CHECKPOINT_PATH,
     monitor='val_loss')
 early_stopping = EarlyStopping(patience=10)
+now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+training_dir = os.path.join(MODEL_PATH, f'training_{MODEL_NAME}_{now}')
+os.mkdir(training_dir)
+csv_log_file = os.path.join(training_dir, 'training_log.csv')
+csv_logger = CSVLogger(csv_log_file)
 
 train = True
 # 1024 * 2 = 2048 upscaled image
@@ -72,19 +82,17 @@ train = True
 # 4^2 = 16 patches per image
 # 16 / 8 = 2 batches per image
 if train:
-    model_history = model.fit(dataset_train.take(10),
-        validation_data=dataset_val.take(10),
+    model_history = model.fit(dataset_train,
+        validation_data=dataset_val,
         epochs=MAX_EPOCH,
-        callbacks=[model_checkpoint_callback, early_stopping],
+        callbacks=[model_checkpoint_callback, early_stopping, csv_logger],
     )
 
 
-now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-training_dir = os.path.join(MODEL_PATH, 'training_' + now)
-os.mkdir(training_dir)
 config_file = os.path.join(training_dir, 'config.json')
 config = json.dumps({
     'model': MODEL_NAME,
+    'input_shape': input_shape,
     'batch_size': BATCH_SZ,
     'max_epoch': MAX_EPOCH,
     'lr': LEARNING_RATE
@@ -92,9 +100,9 @@ config = json.dumps({
 with open(config_file, 'w') as f:
     f.write(config)
 
-history_dict = model_history.history if train else {}
-history_file = os.path.join(training_dir, 'history.json')
-json.dump(history_dict, open(history_file, 'w'))
+#history_dict = model_history.history if train else {}
+#history_file = os.path.join(training_dir, 'history.json')
+#json.dump(history_dict, open(history_file, 'w'))
 
 saved_model_path = os.path.join(training_dir, MODEL_SAVE_PATH)
 print('Saving model to', saved_model_path)

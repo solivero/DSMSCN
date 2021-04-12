@@ -6,13 +6,13 @@ import datetime
 import os
 from tensorflow.keras.layers import *
 from tensorflow.keras.optimizers import Adam
-import tensorflow_io as tfio
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 print(f"Tensorflow ver. {tf.__version__}")
 
-root = "/app"
-dataset_path = os.path.join(root, "spacenet7")
+root = "/media/unibap_storage3/projects/change_detection/"
+#dataset_path = os.path.join(root, "spacenet7")
+dataset_path = root
 training_data = "train/"
 val_data = "train/"
 IMG_SIZE = 1024 # Image size expected on file
@@ -36,12 +36,12 @@ def parse_image_pair(csv_batch) -> dict:
     """
     img1_path = csv_batch['image1'][0]
     image1 = tf.io.read_file(img1_path)
-    image1 = tfio.experimental.image.decode_tiff(image1)
+    image1 = tf.image.decode_png(image1, channels=3)
     image1 = tf.image.convert_image_dtype(image1, tf.float32)[:, :, :3]
 
     img2_path = csv_batch['image2'][0]
     image2 = tf.io.read_file(img2_path)
-    image2 = tfio.experimental.image.decode_tiff(image2)
+    image2 = tf.image.decode_png(image2, channels=3)
     image2 = tf.image.convert_image_dtype(image2, tf.float32)[:, :, :3]
 
     #cm_name = tf.strings.regex_replace(mask_path, r'20\d{2}_\d{2}', double_date)
@@ -51,7 +51,7 @@ def parse_image_pair(csv_batch) -> dict:
 
     mask = tf.io.read_file(cm_name)
     # The masks contain a class index for each pixels
-    mask = tfio.experimental.image.decode_tiff(mask)
+    mask = tf.image.decode_png(mask, channels=1)
     mask = tf.image.convert_image_dtype(mask, tf.float32)[:, :, :1]
     #mask = tf.where(mask == 255, np.dtype('uint8').type(1), mask)
     #filler_row = tf.zeros((1, 1024, 1), tf.uint8)
@@ -65,6 +65,13 @@ def parse_image_pair(csv_batch) -> dict:
 
     #return {'image': merged_image, 'segmentation_mask': mask}
     return image1, image2, mask
+
+def random_augment(image1: tf.Tensor, image2: tf.Tensor, mask: tf.Tensor):
+    def augment(img):
+        img = tf.image.random_flip_left_right(img)
+        img = tf.image.random_flip_up_down(img)
+        return img
+    return augment(image1), augment(image2), augment(mask)
 
 @tf.function
 def make_patches(image1: tf.Tensor, image2: tf.Tensor, mask: tf.Tensor):
@@ -148,11 +155,14 @@ def load_image_train(image1: tf.Tensor, image2: tf.Tensor, mask: tf.Tensor) -> t
         A modified image and its annotation.
     """
 
-    if tf.random.uniform(()) > 1:
+    if tf.random.uniform(()) > 0.5:
         image1 = tf.image.flip_left_right(image1)
         image2 = tf.image.flip_left_right(image2)
         mask = tf.image.flip_left_right(mask)
-
+    if tf.random.uniform(()) > 0.5:
+        image1 = tf.image.flip_up_down(image1)
+        image2 = tf.image.flip_up_down(image2)
+        mask = tf.image.flip_up_down(mask)
     #input_image1, input_image2, input_mask = normalize(image1, image2, mask)
 
     return {'input_1': image1, 'input_2': image2}, mask
@@ -184,12 +194,14 @@ def load_image_test(datapoint: dict) -> tuple:
     return input_image, input_mask
 
 BUFFER_SIZE = 100
+def make_patches_ds(image1, image2, mask):
+    return tf.data.Dataset.from_tensor_slices(make_patches(image1, image2, mask))
 
 def load_image_dataset(csv_dataset):
     return csv_dataset \
         .map(parse_image_pair) \
         .map(upscale_images) \
-        .flat_map(lambda image1, image2, mask: tf.data.Dataset.from_tensor_slices(make_patches(image1, image2, mask))) \
+        .flat_map(make_patches_ds) \
         .map(load_image_train, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
 def load_csv_dataset(csv_path):
@@ -205,8 +217,8 @@ def load_datasets(csv_path, batch_size=8, val_size=256, buffer_size=100):
     train_csv = csv_dataset.skip(val_size)
     dataset_train = load_image_dataset(train_csv) \
         .batch(batch_size, drop_remainder=True) \
+        .shuffle(buffer_size=buffer_size, seed=SEED) \
         .prefetch(buffer_size=AUTOTUNE)
-        #.shuffle(buffer_size=buffer_size, seed=SEED) \
     val_csv = csv_dataset.take(val_size)
     dataset_val = load_image_dataset(val_csv) \
         .batch(batch_size, drop_remainder=True) \
@@ -214,12 +226,12 @@ def load_datasets(csv_path, batch_size=8, val_size=256, buffer_size=100):
     return dataset_train, dataset_val
 
 if __name__ == '__main__':
-    train_ds, val_ds = load_datasets('/app/spacenet7/csvs/sn7_baseline_train_df.csv')
+    train_ds, val_ds = load_datasets(os.path.join(dataset_path, 'csvs/sn7_baseline_train_df.csv'))
 
     predictions_dir = './training_samples'
     def save_img(img, name):
         cast_img = tf.image.convert_image_dtype(img, dtype=tf.uint8, saturate=True)
-        png_img = tf.io.encode_png(cast_img)
+        png_img = tf.image.encode_png(cast_img)
         mask_path = os.path.join(predictions_dir, name)
         tf.io.write_file(
             mask_path, png_img, name=None
